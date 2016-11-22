@@ -51,13 +51,23 @@
 
 enum ObjectType
 {
-    OBJECT_NONE = 0,
-    OBJECT_ROCK,
-    OBJECT_RABBIT,
-    OBJECT_FOX,
+    OBJECT_TYPE_NONE = 0,
+    OBJECT_TYPE_ROCK,
+    OBJECT_TYPE_RABBIT,
+    OBJECT_TYPE_FOX,
 };
 
 typedef enum ObjectType ObjectType;
+
+struct WorldObject
+{
+    // object type
+    ObjectType      type : 16;
+    // generations since the object last ate, only used for OBJECT_TYPE_FOX
+    unsigned short  last_ate : 16;
+};
+
+typedef struct WorldObject WorldObject;
 
 struct World
 {
@@ -70,24 +80,73 @@ struct World
     int n_cols;
 
     // grid ptr, size n_rows] * n_cols
-    ObjectType* grid;
+    WorldObject* grid;
 };
 
 typedef struct World World;
 
-void World_SetObject(World* world, int x, int y, ObjectType obj)
+void World_SetObject(World* world, int x, int y, ObjectType obj_type);
+WorldObject* World_GetObject(World const* world, int x, int y);
+ObjectType World_GetObjectType(World const* world, int x, int y);
+void World_Print(World const* world);
+void World_PrettyPrint(World const* world);
+
+void World_SetObject(World* world, int x, int y, ObjectType obj_type)
 {
-    int idx = x + y * world->n_rows;
-    world->grid[idx] = obj;
+    WorldObject* obj = World_GetObject(world, x, y);
+    obj->type = obj_type;
+    obj->last_ate = 0;
 }
 
-ObjectType World_GetObject(World const* world, int x, int y)
+WorldObject* World_GetObject(World const* world, int x, int y)
 {
-    int idx = x + y * world->n_rows;
-    return world->grid[idx];
+    int idx = x * world->n_rows + y;
+    return &world->grid[idx];
+}
+
+ObjectType World_GetObjectType(World const* world, int x, int y)
+{
+    WorldObject* obj = World_GetObject(world, x, y);
+    return obj->type;
 }
 
 void World_Print(World const* world)
+{
+    int n_objs = 0;
+    for (int x = 0; x < world->n_rows; ++x)
+    {
+        for (int y = 0; y < world->n_cols; ++y)
+        {
+            if (World_GetObjectType(world, x, y) != OBJECT_TYPE_NONE)
+                ++n_objs;
+        }
+    }
+
+    printf("%d %d %d %d %d %d %d\n",
+        world->gen_proc_rabbits, world->gen_proc_foxes,
+        world->gen_food_foxes, world->n_gen, world->n_rows,
+        world->n_cols, n_objs);
+
+    for (int x = 0; x < world->n_rows; ++x)
+    {
+        for (int y = 0; y < world->n_cols; ++y)
+        {
+            ObjectType obj_type = World_GetObjectType(world, x, y);
+            if (obj_type == OBJECT_TYPE_NONE)
+                continue;
+
+            const char* obj_name = "ROCK";
+            if (obj_type == OBJECT_TYPE_RABBIT)
+                obj_name = "RABBIT";
+            else if (obj_type == OBJECT_TYPE_FOX)
+                obj_name = "FOX";
+
+            printf("%s %d %d\n", obj_name, x, y);
+        }
+    }
+}
+
+void World_PrettyPrint(World const* world)
 {
     // print leading '====='
     for (int i = 0; i < world->n_cols; ++i)
@@ -95,25 +154,25 @@ void World_Print(World const* world)
 
     printf("\n");
 
-    for (int x = 0; x < world->n_cols; ++x)
+    for (int x = 0; x < world->n_rows; ++x)
     {
-        for (int y = 0; y < world->n_rows; ++y)
+        for (int y = 0; y < world->n_cols; ++y)
         {
-            ObjectType obj = World_GetObject(world, x, y);
+            ObjectType obj_type = World_GetObjectType(world, x, y);
 
-            switch (obj)
+            switch (obj_type)
             {
                 default:
-                case OBJECT_NONE:
+                case OBJECT_TYPE_NONE:
                     printf(" ");
                     break;
-                case OBJECT_ROCK:
+                case OBJECT_TYPE_ROCK:
                     printf("*");
                     break;
-                case OBJECT_RABBIT:
+                case OBJECT_TYPE_RABBIT:
                     printf("R");
                     break;
-                case OBJECT_FOX:
+                case OBJECT_TYPE_FOX:
                     printf("F");
                     break;
             }
@@ -147,6 +206,19 @@ int main(int argc, char** argv)
         return 1;
     }
 
+    int n_gen = world.n_gen;
+    for (int gen = 0; gen < n_gen; ++gen)
+    {
+        // process foxes
+
+
+        // process rabbits
+
+        --world.n_gen;
+
+         World_PrettyPrint(&world);
+    }
+
     World_Print(&world);
 
     free(world.grid);
@@ -173,15 +245,15 @@ int read_world_from_file(const char* file_str, World* world)
         return 1;
 
     // initialize world grid
-    size_t grid_size = world->n_rows * world->n_cols * sizeof(ObjectType);
-    world->grid = (ObjectType*)malloc(grid_size);
+    size_t grid_size = world->n_rows * world->n_cols * sizeof(WorldObject);
+    world->grid = (WorldObject*)malloc(grid_size);
     if (!world->grid)
         return 1;
 
     for (int y = 0; y < world->n_rows; ++y)
     {
         for (int x = 0; x < world->n_cols; ++x)
-            World_SetObject(world, x, y, OBJECT_NONE);
+            World_SetObject(world, x, y, OBJECT_TYPE_NONE);
     }
 
     // fill grid with objects
@@ -200,21 +272,21 @@ int read_world_from_file(const char* file_str, World* world)
             fscanf(file, "%d", &y) <= 0)
             return 1;
 
-        ObjectType obj = OBJECT_NONE;
+        ObjectType obj_type = OBJECT_TYPE_NONE;
         if (strcmp(buffer, "ROCK") == 0)
-            obj = OBJECT_ROCK;
+            obj_type = OBJECT_TYPE_ROCK;
         else if (strcmp(buffer, "RABBIT") == 0)
-            obj = OBJECT_RABBIT;
+            obj_type = OBJECT_TYPE_RABBIT;
         else if (strcmp(buffer, "FOX") == 0)
-            obj = OBJECT_FOX;
+            obj_type = OBJECT_TYPE_FOX;
         else
             return 1;
 
-        if (x >= world->n_cols ||
-            y >= world->n_rows)
+        if (x >= world->n_rows ||
+            y >= world->n_cols)
             return 1;
 
-        World_SetObject(world, x, y, obj);
+        World_SetObject(world, x, y, obj_type);
     }
 
     fclose(file);
