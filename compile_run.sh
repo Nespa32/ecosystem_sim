@@ -2,5 +2,6 @@
 
 set -e
 
-gcc -std=gnu11 -Wall -ggdb -o ecosystem main.c
-./ecosystem input.txt
+mkdir -p build
+gcc -std=gnu11 -Wall -ggdb -o build/ecosystem main.c
+# ./build/ecosystem input.txt

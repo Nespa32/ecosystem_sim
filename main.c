@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <assert.h>
 
 /* Rabbit Rules */
 /*
@@ -62,9 +63,9 @@ typedef enum ObjectType ObjectType;
 struct WorldObject
 {
     // object type
-    ObjectType      type : 16;
+    ObjectType      type : 8;
     // generations since the object last ate, only used for OBJECT_TYPE_FOX
-    unsigned short  last_ate : 16;
+    unsigned int    last_ate : 8;
 };
 
 typedef struct WorldObject WorldObject;
@@ -85,28 +86,39 @@ struct World
 
 typedef struct World World;
 
-void World_SetObject(World* world, int x, int y, ObjectType obj_type);
-WorldObject* World_GetObject(World const* world, int x, int y);
-ObjectType World_GetObjectType(World const* world, int x, int y);
+int World_CoordsToIdx(World const* world, int x, int y);
+void World_SetObjectType(World* world, int idx, ObjectType obj_type);
+void World_SetObject(World* world, int idx, WorldObject* obj);
+WorldObject* World_GetObject(World const* world, int idx);
+ObjectType World_GetObjectType(World const* world, int idx);
 void World_Print(World const* world);
 void World_PrettyPrint(World const* world);
 
-void World_SetObject(World* world, int x, int y, ObjectType obj_type)
+int World_CoordsToIdx(World const* world, int x, int y)
 {
-    WorldObject* obj = World_GetObject(world, x, y);
-    obj->type = obj_type;
-    obj->last_ate = 0;
+    return x * world->n_rows + y;
 }
 
-WorldObject* World_GetObject(World const* world, int x, int y)
+void World_SetObjectType(World* world, int idx, ObjectType obj_type)
 {
-    int idx = x * world->n_rows + y;
+    WorldObject* obj = World_GetObject(world, idx);
+    obj->type = obj_type;
+}
+
+void World_SetObject(World* world, int idx, WorldObject* obj)
+{
+    WorldObject* local_obj = World_GetObject(world, idx);
+    (*local_obj) = (*obj);
+}
+
+WorldObject* World_GetObject(World const* world, int idx)
+{
     return &world->grid[idx];
 }
 
-ObjectType World_GetObjectType(World const* world, int x, int y)
+ObjectType World_GetObjectType(World const* world, int idx)
 {
-    WorldObject* obj = World_GetObject(world, x, y);
+    WorldObject* obj = World_GetObject(world, idx);
     return obj->type;
 }
 
@@ -117,7 +129,8 @@ void World_Print(World const* world)
     {
         for (int y = 0; y < world->n_cols; ++y)
         {
-            if (World_GetObjectType(world, x, y) != OBJECT_TYPE_NONE)
+            int idx = World_CoordsToIdx(world, x, y);
+            if (World_GetObjectType(world, idx) != OBJECT_TYPE_NONE)
                 ++n_objs;
         }
     }
@@ -131,7 +144,8 @@ void World_Print(World const* world)
     {
         for (int y = 0; y < world->n_cols; ++y)
         {
-            ObjectType obj_type = World_GetObjectType(world, x, y);
+            int idx = World_CoordsToIdx(world, x, y);
+            ObjectType obj_type = World_GetObjectType(world, idx);
             if (obj_type == OBJECT_TYPE_NONE)
                 continue;
 
@@ -149,16 +163,19 @@ void World_Print(World const* world)
 void World_PrettyPrint(World const* world)
 {
     // print leading '====='
-    for (int i = 0; i < world->n_cols; ++i)
-        printf("=");
+    for (int i = 0; i < world->n_cols + 2; ++i)
+        printf("-");
 
     printf("\n");
 
     for (int x = 0; x < world->n_rows; ++x)
     {
+        printf("|");
+
         for (int y = 0; y < world->n_cols; ++y)
         {
-            ObjectType obj_type = World_GetObjectType(world, x, y);
+            int idx = World_CoordsToIdx(world, x, y);
+            ObjectType obj_type = World_GetObjectType(world, idx);
 
             switch (obj_type)
             {
@@ -178,18 +195,62 @@ void World_PrettyPrint(World const* world)
             }
         }
 
-        printf("\n");
+        printf("|\n");
     }
 
     // print trailing '====='
-    for (int i = 0; i < world->n_cols; ++i)
-        printf("=");
+    for (int i = 0; i < world->n_cols + 2; ++i)
+        printf("-");
 
     printf("\n");
 }
 
 void print_usage();
 int read_world_from_file(const char* file_str, World* world);
+
+int choose_move(World const* world, int gen, WorldObject const* obj,
+    int x, int y, ObjectType target_type)
+{
+    static int const directions[4][2] = {
+        // north      east      south      west
+        { -1, 0 }, { 0, 1 }, { 1, 0 }, { 0, -1 }
+    };
+
+    int viable_mask = 0;
+    for (int i = 0; i < 4; ++i)
+    {
+        int const coord_x = x + directions[i][0];
+        int const coord_y = y + directions[i][1];
+        if (coord_x < 0 || coord_x >= world->n_rows ||
+            coord_y < 0 || coord_y >= world->n_cols)
+            continue;
+
+        int idx = World_CoordsToIdx(world, coord_x, coord_y);
+        WorldObject const* local_obj = World_GetObject(world, idx);
+        if (local_obj->type == target_type)
+            viable_mask |= 1 << i;
+    }
+
+    if (!viable_mask)
+        return -1;
+
+    int const p = __builtin_popcount(viable_mask);
+    int conflict_resol = (gen + x + y) % p;
+    for (int i = 0; i < 4; ++i)
+    {
+        if (viable_mask & (1 << i))
+        {
+            if (!conflict_resol)
+                return World_CoordsToIdx(world, x + directions[i][0], y + directions[i][1]);
+            else
+                --conflict_resol;
+        }
+    }
+
+    // shouldn't happen
+    assert(0);
+    return 0;
+}
 
 int main(int argc, char** argv)
 {
@@ -206,17 +267,128 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    int n_gen = world.n_gen;
+    printf("Generation 0\n");
+    World_PrettyPrint(&world);
+
+    size_t grid_size = world.n_rows * world.n_cols * sizeof(WorldObject);
+    WorldObject* out_grid = (WorldObject*)malloc(grid_size);
+
+    int const n_gen = world.n_gen;
     for (int gen = 0; gen < n_gen; ++gen)
     {
-        // process foxes
+        int const proc_rabbits = ((gen + 1) % (world.gen_proc_rabbits + 1)) == 0;
+        int const proc_foxes = ((gen + 1) % (world.gen_proc_foxes + 1)) == 0;
 
+        memcpy(out_grid, world.grid, grid_size);
 
         // process rabbits
+        for (int x = 0; x < world.n_rows; ++x)
+        {
+            for (int y = 0; y < world.n_rows; ++y)
+            {
+                int idx = World_CoordsToIdx(&world, x, y);
+                WorldObject* obj = World_GetObject(&world, idx);
+                if (obj->type != OBJECT_TYPE_RABBIT)
+                    continue;
+
+                int loc_idx = choose_move(&world, gen, obj, x, y, OBJECT_TYPE_NONE);
+                if (loc_idx >= 0)
+                {
+                    // move obj to loc_idx
+                    // conflict rules say the one with the older procreation age stays
+                    // but all rabbits have the same procreation age, so overwriting works
+                    WorldObject* local_object = &out_grid[loc_idx];
+                    (*local_object) = (*obj);
+
+                    if (proc_rabbits)
+                    {
+                        // procreation, leave rabbit in place
+                        out_grid[idx] = (*obj);
+                    }
+                    else
+                        out_grid[idx].type = OBJECT_TYPE_NONE;
+                }
+            }
+        }
+
+        memcpy(world.grid, out_grid, grid_size);
+
+        // process foxes
+        for (int x = 0; x < world.n_rows; ++x)
+        {
+            for (int y = 0; y < world.n_cols; ++y)
+            {
+                int idx = World_CoordsToIdx(&world, x, y);
+                WorldObject* obj = World_GetObject(&world, idx);
+                if (obj->type != OBJECT_TYPE_FOX)
+                    continue;
+
+                // search for a rabbit
+                int rabbit_loc_idx = choose_move(&world, gen, obj, x, y, OBJECT_TYPE_RABBIT);
+                if (rabbit_loc_idx >= 0)
+                {
+                    // found a rabbit, eat it up
+                    obj->last_ate = 0;
+                    // move fox to rabbit location
+                    WorldObject* local_object = &out_grid[rabbit_loc_idx];
+                    (*local_object) = (*obj);
+
+                    if (proc_foxes)
+                    {
+                        // procreation, leave fox in place
+                        out_grid[idx] = (*obj);
+                    }
+                    else
+                        out_grid[idx].type = OBJECT_TYPE_NONE;
+
+                    continue; // that's all folks
+                }
+
+                // no rabbit found, die if too much time passed since last gen
+                if (++obj->last_ate >= world.gen_food_foxes)
+                {
+                    out_grid[idx].type = OBJECT_TYPE_NONE; // death
+                    continue;
+                }
+
+                int loc_idx = choose_move(&world, gen, obj, x, y, OBJECT_TYPE_NONE);
+                if (loc_idx >= 0)
+                {
+                    // move fox to location
+                    WorldObject* local_object = &out_grid[loc_idx];
+                    // overriding another fox, keep the least hungry one
+                    if (local_object->type == OBJECT_TYPE_FOX)
+                    {
+                        obj->last_ate = (local_object->last_ate < obj->last_ate) ?
+                            local_object->last_ate : obj->last_ate;
+                    }
+
+                    (*local_object) = (*obj);
+
+                    if (proc_foxes)
+                    {
+                        // procreation, leave fox in place
+                        // it doesn't inherit father's last_ate
+                        out_grid[idx] = (*obj);
+                        out_grid[idx].last_ate = 0;
+                    }
+                    else
+                        out_grid[idx].type = OBJECT_TYPE_NONE;
+
+                    continue;
+                }
+
+                // failed to move, stay in same place
+                out_grid[idx] = (*obj);
+            }
+        }
+
+        memcpy(world.grid, out_grid, grid_size);
 
         --world.n_gen;
 
-         World_PrettyPrint(&world);
+        printf("\nGeneration %d\n", gen + 1);
+        World_PrettyPrint(&world);
     }
 
     World_Print(&world);
@@ -253,7 +425,12 @@ int read_world_from_file(const char* file_str, World* world)
     for (int y = 0; y < world->n_rows; ++y)
     {
         for (int x = 0; x < world->n_cols; ++x)
-            World_SetObject(world, x, y, OBJECT_TYPE_NONE);
+        {
+            int idx = World_CoordsToIdx(world, x, y);
+            WorldObject* obj = World_GetObject(world, idx);
+            obj->type = OBJECT_TYPE_NONE;
+            obj->last_ate = 0;
+        }
     }
 
     // fill grid with objects
@@ -286,7 +463,8 @@ int read_world_from_file(const char* file_str, World* world)
             y >= world->n_cols)
             return 1;
 
-        World_SetObject(world, x, y, obj_type);
+        int idx = World_CoordsToIdx(world, x, y);
+        World_SetObjectType(world, idx, obj_type);
     }
 
     fclose(file);
