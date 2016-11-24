@@ -63,9 +63,9 @@ typedef enum ObjectType ObjectType;
 struct WorldObject
 {
     // object type
-    ObjectType      type : 8;
+    ObjectType      type : 3;
     // generations since the object last ate, only used for OBJECT_TYPE_FOX
-    unsigned int    last_ate : 8;
+    unsigned int    last_ate : 5;
 };
 
 typedef struct WorldObject WorldObject;
@@ -235,21 +235,31 @@ int choose_move(World const* world, int gen, WorldObject const* obj,
         return -1;
 
     int const p = __builtin_popcount(viable_mask);
-    int conflict_resol = (gen + x + y) % p;
-    for (int i = 0; i < 4; ++i)
-    {
-        if (viable_mask & (1 << i))
-        {
-            if (!conflict_resol)
-                return World_CoordsToIdx(world, x + directions[i][0], y + directions[i][1]);
-            else
-                --conflict_resol;
-        }
-    }
+    int path_choice = (gen + x + y) % p;
 
-    // shouldn't happen
-    assert(0);
-    return 0;
+    // from viable_mask and path_choice we can use a lookup table
+    //  to determine which path to go, instead of iteratively figuring it out
+    static int const lookuptable[16][4] = {
+        { -1, -1, -1, -1 }, // 0
+        {  0, -1, -1, -1 }, // 1
+        {  1, -1, -1, -1 }, // 2
+        {  0,  1, -1, -1 }, // 3
+        {  2, -1, -1, -1 }, // 4
+        {  0,  2, -1, -1 }, // 5
+        {  1,  2, -1, -1 }, // 6
+        {  0,  1,  2, -1 }, // 7
+        {  3, -1, -1, -1 }, // 8
+        {  0,  3, -1, -1 }, // 9
+        {  1,  3, -1, -1 }, // 10
+        {  0,  1,  3, -1 }, // 11
+        {  2,  3, -1, -1 }, // 12
+        {  0,  2,  3, -1 }, // 13
+        {  1,  2,  3, -1 }, // 14
+        {  0,  1,  2,  3 }, // 15
+    };
+
+    int i = lookuptable[viable_mask][path_choice];
+    return World_CoordsToIdx(world, x + directions[i][0], y + directions[i][1]);
 }
 
 int main(int argc, char** argv)
