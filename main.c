@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include "defines.h"
 
 enum ObjectType
 {
@@ -48,6 +49,7 @@ WorldObject* World_GetObject(World const* world, int idx);
 ObjectType World_GetObjectType(World const* world, int idx);
 void World_Print(World const* world);
 void World_PrettyPrint(World const* world);
+int World_Compare(World const* left, World const* right);
 
 int World_CoordsToIdx(World const* world, int x, int y)
 {
@@ -160,6 +162,37 @@ void World_PrettyPrint(World const* world)
     printf("\n");
 }
 
+int World_Compare(World const* left, World const* right)
+{
+    if (left->gen_proc_rabbits != right->gen_proc_rabbits ||
+        left->gen_proc_foxes != right->gen_proc_foxes ||
+        left->gen_food_foxes != right->gen_food_foxes ||
+        left->n_gen != right->n_gen ||
+        left->n_rows != right->n_rows ||
+        left->n_cols != right->n_cols)
+        return 1;
+
+    if ((left->grid == NULL) != (right->grid == NULL))
+        return 1;
+
+    if (left->grid == NULL)
+        return 1;
+
+    for (int x = 0; x < left->n_rows; ++x)
+    {
+        for (int y = 0; y < left->n_cols; ++y)
+        {
+            int idx = World_CoordsToIdx(left, x, y);
+            WorldObject const* left_obj = World_GetObject(left, idx);
+            WorldObject const* right_obj = World_GetObject(right, idx);
+            if (left_obj->type != right_obj->type)
+                return 1;
+        }
+    }
+
+    return 0;
+}
+
 void print_usage();
 int read_world_from_file(const char* file_str, World* world);
 
@@ -217,26 +250,71 @@ int choose_move(World const* world, int gen, WorldObject const* obj,
     return World_CoordsToIdx(world, x + directions[i][0], y + directions[i][1]);
 }
 
+void print_usage()
+{
+    printf("Usage: ./ecosystem $infile [options]\n");
+    printf("Options:\n");
+    printf("'--test test_file' uses world in test_file to compare with output world, exit error 1 if not equal\n");
+    printf("'--verbose' prints each world generation\n");
+    printf("'--no-output' silences default output, don't use with --verbose\n");
+    printf("'--help' prints this usage message\n");
+}
+
 int main(int argc, char** argv)
 {
-    if (argc < 2)
+    const char* input_world_file = argc > 1 ? argv[1] : NULL;
+    const char* output_test_file = NULL;
+    int verbose = 0;
+    int no_output = 0;
+
+    // process program options
+    for (int i = 1; i < argc; ++i)
+    {
+        char const* arg = argv[i];
+        if (strcmp(arg, "--test") == 0)
+        {
+            ++i;
+            if (i >= argc)
+            {
+                LOG_ERROR("--test option: missing test_file arg");
+                return 1;
+            }
+
+            no_output = 1; // no normal output with test case, only passed/failed msg
+            output_test_file = argv[i];
+        }
+        else if (strcmp(arg, "--verbose") == 0)
+            verbose = 1;
+        else if (strcmp(arg, "--no-output") == 0)
+            no_output = 1;
+        else if (strcmp(arg, "--help") == 0)
+        {
+            print_usage();
+            return 0;
+        }
+    }
+
+    if (input_world_file == NULL)
     {
         print_usage();
         return 1;
     }
 
     World world;
-    if (read_world_from_file(argv[1], &world))
+    if (read_world_from_file(input_world_file, &world))
     {
-        fprintf(stderr, "Failed while reading input file '%s'\n", argv[1]);
+        LOG_ERROR("failed while reading input file '%s'", input_world_file);
         return 1;
     }
 
-    printf("Generation 0\n");
-    World_PrettyPrint(&world);
-
     size_t grid_size = world.n_rows * world.n_cols * sizeof(WorldObject);
     WorldObject* out_grid = (WorldObject*)malloc(grid_size);
+
+    if (verbose)
+    {
+        printf("Generation 0\n");
+        World_PrettyPrint(&world);
+    }
 
     int const n_gen = world.n_gen;
     for (int gen = 0; gen < n_gen; ++gen)
@@ -382,19 +460,38 @@ int main(int argc, char** argv)
 
         --world.n_gen;
 
-        printf("\nGeneration %d\n", gen + 1);
-        World_PrettyPrint(&world);
+        if (verbose)
+        {
+            printf("\nGeneration %d\n", gen + 1);
+            World_PrettyPrint(&world);
+        }
     }
 
-    World_Print(&world);
+    if (no_output == 0)
+        World_Print(&world);
+
+    int exit_code = 0;
+
+    if (output_test_file)
+    {
+        World test_world;
+        if (read_world_from_file(output_test_file, &test_world))
+        {
+            LOG_ERROR("failed while reading test file '%s'", output_test_file);
+            return 1;
+        }
+
+        exit_code = World_Compare(&world, &test_world);
+        if (exit_code > 0)
+            printf("Failed test for world size %dx%d\n", world.n_rows, world.n_cols);
+        else
+            printf("Passed test for world size %dx%d\n", world.n_rows, world.n_cols);
+
+        free(test_world.grid);
+    }
 
     free(world.grid);
-    return 0;
-}
-
-void print_usage()
-{
-    printf("Usage: ./ecosystem $infile\n");
+    return exit_code;
 }
 
 int read_world_from_file(const char* file_str, World* world)
