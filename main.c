@@ -17,11 +17,11 @@ typedef enum ObjectType ObjectType;
 struct WorldObject
 {
     // object type
-    ObjectType      type;
+    signed char     type : 3;
     // generations since the object last ate, only used for OBJECT_TYPE_FOX
-    unsigned int    last_ate;
+    unsigned char   last_ate : 5;
     // generation counter for procreation
-    unsigned int    gen_proc;
+    unsigned int    gen_proc : 8;
 };
 
 typedef struct WorldObject WorldObject;
