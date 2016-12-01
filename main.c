@@ -21,7 +21,7 @@ struct WorldObject
     // generations since the object last ate, only used for OBJECT_TYPE_FOX
     unsigned char   last_ate : 5;
     // generation counter for procreation
-    unsigned int    gen_proc : 8;
+    unsigned char    gen_proc : 8;
 };
 
 typedef struct WorldObject WorldObject;
@@ -228,6 +228,7 @@ int choose_move(World const* world, int gen, WorldObject const* obj,
     // from viable_mask and path_choice we can use a lookup table
     //  to determine which path to go, instead of iteratively figuring it out
     static int const lookuptable[16][4] = {
+
         { -1, -1, -1, -1 }, // 0
         {  0, -1, -1, -1 }, // 1
         {  1, -1, -1, -1 }, // 2
@@ -316,11 +317,11 @@ int main(int argc, char** argv)
         World_PrettyPrint(&world);
     }
 
+    memcpy(out_grid, world.grid, grid_size);
+
     int const n_gen = world.n_gen;
     for (int gen = 0; gen < n_gen; ++gen)
     {
-        memcpy(out_grid, world.grid, grid_size);
-
         // process rabbits
         for (int x = 0; x < world.n_rows; ++x)
         {
@@ -332,11 +333,12 @@ int main(int argc, char** argv)
                     continue;
 
                 ++obj->gen_proc;
-                int const can_proc = obj->gen_proc > world.gen_proc_rabbits;
 
                 int loc_idx = choose_move(&world, gen, obj, x, y, OBJECT_TYPE_NONE);
                 if (loc_idx >= 0)
                 {
+                    int const can_proc = obj->gen_proc > world.gen_proc_rabbits;
+
                     // reset proc age since we were able to move
                     if (can_proc)
                         obj->gen_proc = 0;
@@ -352,11 +354,9 @@ int main(int argc, char** argv)
                     else
                         (*local_object) = (*obj);
 
+                    // procreation, leave rabbit in place
                     if (can_proc)
-                    {
-                        // procreation, leave rabbit in place
                         out_grid[idx] = (*obj);
-                    }
                     else
                         out_grid[idx].type = OBJECT_TYPE_NONE;
 
@@ -397,11 +397,9 @@ int main(int argc, char** argv)
                     WorldObject* local_object = &out_grid[rabbit_loc_idx];
                     (*local_object) = (*obj);
 
+                    // // procreation, leave fox in place
                     if (can_proc)
-                    {
-                        // procreation, leave fox in place
                         out_grid[idx] = (*local_object);
-                    }
                     else
                         out_grid[idx].type = OBJECT_TYPE_NONE;
 
@@ -438,10 +436,10 @@ int main(int argc, char** argv)
                     else
                         (*local_object) = (*obj);
 
+                    // procreation, leave fox in place
+                    // it doesn't inherit father's last_ate
                     if (can_proc)
                     {
-                        // procreation, leave fox in place
-                        // it doesn't inherit father's last_ate
                         out_grid[idx] = (*obj);
                         out_grid[idx].last_ate = 0;
                     }
