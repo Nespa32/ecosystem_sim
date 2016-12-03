@@ -3,6 +3,7 @@
 #define __WORLD_H
 
 #include <stdio.h>
+#include "Defines.h"
 
 enum
 {
@@ -47,7 +48,6 @@ struct World
     int n_rows;
     int n_cols;
 
-    size_t grid_size;
     // grid ptr, size n_rows * n_cols
     WorldObjectPos* grid;
 };
@@ -59,6 +59,7 @@ World* World_New(int gen_proc_rabbits, int gen_proc_foxes, int gen_food_foxes,
 void World_Delete(World* world);
 int World_CoordsToIdx(World const* world, int x, int y);
 WorldObjectPos* World_GetObject(World const* world, int idx);
+void World_UpdateGrid(World* world);
 void World_Print(World const* world);
 void World_PrettyPrint(World const* world);
 int World_Compare(World const* left, World const* right);
@@ -66,7 +67,10 @@ int World_Compare(World const* left, World const* right);
 inline World* World_New(int gen_proc_rabbits, int gen_proc_foxes, int gen_food_foxes,
     int n_gen, int n_rows, int n_cols)
 {
-    size_t grid_size = n_rows * n_cols * sizeof(WorldObject) * 2;
+    //! internally, the grid is larger than it needs to be so it can have borders
+    //! this way, it can tolerate offsets of -1 and +1 beyond normal bounds
+    //! extra borders are initialized with rocks, which don't affect next grid states
+    size_t grid_size = (n_rows + 2) * (n_cols + 2) * sizeof(WorldObjectPos);
     // do a single malloc
     // this only works because WorldObject elements are 1-byte aligned
     size_t world_size = sizeof(World) +     // World size
@@ -80,10 +84,29 @@ inline World* World_New(int gen_proc_rabbits, int gen_proc_foxes, int gen_food_f
     world->n_gen = n_gen;
     world->n_rows = n_rows;
     world->n_cols = n_cols;
-    world->grid_size = grid_size;
     world->grid = (WorldObjectPos*)(m + sizeof(World));
 
-    memset(world->grid, 0x0, world->grid_size);
+    memset(world->grid, 0x0, grid_size);
+
+    // fill borders with rocks
+    // top/bottom borders
+    for (int i = 0; i < (n_cols + 2); ++i)
+    {
+        WorldObjectPos* top_obj = &world->grid[i];
+        WorldObjectPos* bottom_obj = &world->grid[i + (n_rows + 1) * (n_cols + 2)];
+        top_obj->first.type = top_obj->second.type =
+            bottom_obj->first.type = bottom_obj->second.type = OBJECT_TYPE_ROCK;
+    }
+
+    // left/right borders
+    for (int i = 1; i < (n_rows + 1); ++i)
+    {
+        WorldObjectPos* left_obj = &world->grid[i * (n_cols + 2)];
+        WorldObjectPos* right_obj = &world->grid[i * (n_cols + 2) + (n_cols + 1)];
+        left_obj->first.type = left_obj->second.type =
+            right_obj->first.type = right_obj->second.type = OBJECT_TYPE_ROCK;
+    }
+
     return world;
 }
 
@@ -95,12 +118,26 @@ inline void World_Delete(World* world)
 
 inline int World_CoordsToIdx(World const* world, int x, int y)
 {
-    return x * world->n_rows + y;
+    // not a simple (x + world->n_row * y) because of extra borders
+    return (x + 1) * (world->n_rows + 2) + (y + 1);
 }
 
 inline WorldObjectPos* World_GetObject(World const* world, int idx)
 {
     return &world->grid[idx];
+}
+
+inline void World_UpdateGrid(World* world)
+{
+    for (int x = 0; x < world->n_rows; ++x)
+    {
+        for (int y = 0; y < world->n_cols; ++y)
+        {
+            int idx = World_CoordsToIdx(world, x, y);
+            WorldObjectPos* obj = World_GetObject(world, idx);
+            obj->first = obj->second;
+        }
+    }
 }
 
 inline void World_Print(World const* world)

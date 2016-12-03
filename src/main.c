@@ -22,10 +22,6 @@ int choose_move(World const* world, int gen, WorldObject const* obj,
     {
         int const coord_x = x + directions[i][0];
         int const coord_y = y + directions[i][1];
-        if (coord_x < 0 || coord_x >= world->n_rows ||
-            coord_y < 0 || coord_y >= world->n_cols)
-            continue;
-
         int idx = World_CoordsToIdx(world, coord_x, coord_y);
         WorldObjectPos const* local_obj = World_GetObject(world, idx);
         if (local_obj->first.type == target_type)
@@ -127,9 +123,6 @@ int main(int argc, char** argv)
         World_PrettyPrint(world);
     }
 
-    for (int i = 0; i < world->n_rows * world->n_cols; ++i)
-        world->grid[i].second = world->grid[i].first;
-
     int const n_gen = world->n_gen;
     for (int gen = 0; gen < n_gen; ++gen)
     {
@@ -181,8 +174,7 @@ int main(int argc, char** argv)
             }
         }
 
-        for (int i = 0; i < world->n_rows * world->n_cols; ++i)
-            world->grid[i].first = world->grid[i].second;
+        World_UpdateGrid(world);
 
         // process foxes
         for (int x = 0; x < world->n_rows; ++x)
@@ -271,8 +263,7 @@ int main(int argc, char** argv)
             }
         }
 
-        for (int i = 0; i < world->n_rows * world->n_cols; ++i)
-            world->grid[i].first = world->grid[i].second;
+        World_UpdateGrid(world);
 
         --world->n_gen;
 
@@ -379,6 +370,7 @@ World* read_world_from_file(const char* file_str)
         int idx = World_CoordsToIdx(world, x, y);
         WorldObjectPos* obj = World_GetObject(world, idx);
         obj->first.type = obj_type;
+        obj->second.type = obj_type;
     }
 
     fclose(file);
