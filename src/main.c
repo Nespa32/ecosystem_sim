@@ -9,7 +9,7 @@
 void print_usage();
 World* read_world_from_file(const char* file_str);
 
-int choose_move(World const* world, int gen, WorldObject const* obj,
+WorldObjectPos* choose_move(World const* world, uint32 gen, WorldObject const* obj,
     int x, int y, ObjectType target_type)
 {
     static int const directions[4][2] = {
@@ -29,7 +29,7 @@ int choose_move(World const* world, int gen, WorldObject const* obj,
     }
 
     if (!viable_mask)
-        return -1;
+        return nullptr;
 
     int const p = __builtin_popcount(viable_mask);
     int path_choice = (gen + x + y) % p;
@@ -38,26 +38,27 @@ int choose_move(World const* world, int gen, WorldObject const* obj,
     //  to determine which path to go, instead of iteratively figuring it out
     static int const lookuptable[16][4] = {
 
-        { -1, -1, -1, -1 }, // 0
-        {  0, -1, -1, -1 }, // 1
-        {  1, -1, -1, -1 }, // 2
-        {  0,  1, -1, -1 }, // 3
-        {  2, -1, -1, -1 }, // 4
-        {  0,  2, -1, -1 }, // 5
-        {  1,  2, -1, -1 }, // 6
-        {  0,  1,  2, -1 }, // 7
-        {  3, -1, -1, -1 }, // 8
-        {  0,  3, -1, -1 }, // 9
-        {  1,  3, -1, -1 }, // 10
-        {  0,  1,  3, -1 }, // 11
-        {  2,  3, -1, -1 }, // 12
-        {  0,  2,  3, -1 }, // 13
-        {  1,  2,  3, -1 }, // 14
+        {  9,  9,  9,  9 }, // 0
+        {  0,  9,  9,  9 }, // 1
+        {  1,  9,  9,  9 }, // 2
+        {  0,  1,  9,  9 }, // 3
+        {  2,  9,  9,  9 }, // 4
+        {  0,  2,  9,  9 }, // 5
+        {  1,  2,  9,  9 }, // 6
+        {  0,  1,  2,  9 }, // 7
+        {  3,  9,  9,  9 }, // 8
+        {  0,  3,  9,  9 }, // 9
+        {  1,  3,  9,  9 }, // 10
+        {  0,  1,  3,  9 }, // 11
+        {  2,  3,  9,  9 }, // 12
+        {  0,  2,  3,  9 }, // 13
+        {  1,  2,  3,  9 }, // 14
         {  0,  1,  2,  3 }, // 15
     };
 
     int i = lookuptable[viable_mask][path_choice];
-    return World_CoordsToIdx(world, x + directions[i][0], y + directions[i][1]);
+    int idx = World_CoordsToIdx(world, x + directions[i][0], y + directions[i][1]);
+    return World_GetObject(world, idx);
 }
 
 void print_usage()
@@ -123,8 +124,8 @@ int main(int argc, char** argv)
         World_PrettyPrint(world);
     }
 
-    int const n_gen = world->n_gen;
-    for (int gen = 0; gen < n_gen; ++gen)
+    uint64 const n_gen = world->n_gen;
+    for (uint64 gen = 0; gen < n_gen; ++gen)
     {
         // process rabbits
         for (int x = 0; x < world->n_rows; ++x)
@@ -139,8 +140,8 @@ int main(int argc, char** argv)
 
                 ++obj->gen_proc;
 
-                int loc_idx = choose_move(world, gen, obj, x, y, OBJECT_TYPE_NONE);
-                if (loc_idx >= 0)
+                WorldObjectPos* local_obj_pos = choose_move(world, gen, obj, x, y, OBJECT_TYPE_NONE);
+                if (local_obj_pos)
                 {
                     int const can_proc = obj->gen_proc > world->gen_proc_rabbits;
 
@@ -150,7 +151,6 @@ int main(int argc, char** argv)
 
                     // move obj to loc_idx
                     // conflict rules say the one with the older procreation age stays
-                    WorldObjectPos* local_obj_pos = World_GetObject(world, loc_idx);
                     WorldObject* local_obj = &(local_obj_pos->second);
                     if (local_obj->type == OBJECT_TYPE_RABBIT)
                     {
@@ -191,8 +191,8 @@ int main(int argc, char** argv)
                 int const can_proc = obj->gen_proc > world->gen_proc_foxes;
 
                 // search for a rabbit
-                int rabbit_loc_idx = choose_move(world, gen, obj, x, y, OBJECT_TYPE_RABBIT);
-                if (rabbit_loc_idx >= 0)
+                WorldObjectPos* local_obj_pos = choose_move(world, gen, obj, x, y, OBJECT_TYPE_RABBIT);
+                if (local_obj_pos)
                 {
                     // reset proc age since we were able to move
                     if (can_proc)
@@ -201,7 +201,6 @@ int main(int argc, char** argv)
                     // found a rabbit, eat it up
                     obj->last_ate = 0;
                     // move fox to rabbit location
-                    WorldObjectPos* local_obj_pos = World_GetObject(world, rabbit_loc_idx);
                     WorldObject* local_obj = &(local_obj_pos->second);
                     (*local_obj) = (*obj);
 
@@ -221,15 +220,14 @@ int main(int argc, char** argv)
                     continue;
                 }
 
-                int loc_idx = choose_move(world, gen, obj, x, y, OBJECT_TYPE_NONE);
-                if (loc_idx >= 0)
+                local_obj_pos = choose_move(world, gen, obj, x, y, OBJECT_TYPE_NONE);
+                if (local_obj_pos)
                 {
                     // reset proc age since we were able to move
                     if (can_proc)
                         obj->gen_proc = 0;
 
                     // move fox to location
-                    WorldObjectPos* local_obj_pos = World_GetObject(world, loc_idx);
                     WorldObject* local_obj = &(local_obj_pos->second);
 
                     // overriding another fox, keep the one with older procreation age
@@ -269,7 +267,7 @@ int main(int argc, char** argv)
 
         if (verbose)
         {
-            printf("\nGeneration %d\n", gen + 1);
+            printf("\nGeneration %lu\n", gen + 1);
             World_PrettyPrint(world);
         }
     }
@@ -307,41 +305,41 @@ World* read_world_from_file(const char* file_str)
     if (!file)
         return nullptr;
 
-    int gen_proc_rabbits;
-    int gen_proc_foxes;
-    int gen_food_foxes;
-    int n_gen;
-    int n_rows;
-    int n_cols;
+    uint32 gen_proc_rabbits;
+    uint32 gen_proc_foxes;
+    uint32 gen_food_foxes;
+    uint32 n_gen;
+    uint32 n_rows;
+    uint32 n_cols;
 
-    if (fscanf(file, "%d ", &gen_proc_rabbits) <= 0 ||
-        fscanf(file, "%d ", &gen_proc_foxes) <= 0 ||
-        fscanf(file, "%d ", &gen_food_foxes) <= 0 ||
-        fscanf(file, "%d ", &n_gen) <= 0 ||
-        fscanf(file, "%d ", &n_rows) <= 0 ||
-        fscanf(file, "%d ", &n_cols) <= 0)
+    if (fscanf(file, "%u ", &gen_proc_rabbits) <= 0 ||
+        fscanf(file, "%u ", &gen_proc_foxes) <= 0 ||
+        fscanf(file, "%u ", &gen_food_foxes) <= 0 ||
+        fscanf(file, "%u ", &n_gen) <= 0 ||
+        fscanf(file, "%u ", &n_rows) <= 0 ||
+        fscanf(file, "%u ", &n_cols) <= 0)
         return nullptr;
 
     World* world = World_New(gen_proc_rabbits, gen_proc_foxes, gen_food_foxes,
         n_gen, n_rows, n_cols);
 
     // fill grid with objects
-    int n_objects;
+    uint32 n_objects;
     if (fscanf(file, "%d\n", &n_objects) <= 0)
     {
         World_Delete(world);
         return nullptr;
     }
 
-    for (int i = 0; i < n_objects; ++i)
+    for (uint32 i = 0; i < n_objects; ++i)
     {
         char buffer[100];
-        int x;
-        int y;
+        uint32 x;
+        uint32 y;
 
         if (fscanf(file, "%s ", buffer) <= 0 ||
-            fscanf(file, "%d ", &x) <= 0 ||
-            fscanf(file, "%d", &y) <= 0)
+            fscanf(file, "%u ", &x) <= 0 ||
+            fscanf(file, "%u", &y) <= 0)
         {
             World_Delete(world);
             return nullptr;
@@ -360,8 +358,8 @@ World* read_world_from_file(const char* file_str)
             return nullptr;
         }
 
-        if (x >= world->n_rows ||
-            y >= world->n_cols)
+        if (x >= n_rows ||
+            y >= n_cols)
         {
             World_Delete(world);
             return nullptr;

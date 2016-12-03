@@ -13,17 +13,16 @@ enum
     OBJECT_TYPE_FOX,
 };
 
-// bit of a hack, since we can't have unsigned enums
-typedef unsigned char ObjectType;
+typedef int8 ObjectType;
 
 struct WorldObject
 {
     // object type
-    ObjectType      type : 2;
+    ObjectType      type : 3;
     // generations since the object last ate, only used for OBJECT_TYPE_FOX
-    unsigned char   last_ate : 6;
+    uint8           last_ate : 5;
     // generation counter for procreation
-    unsigned char   gen_proc : 8;
+    uint8           gen_proc : 8;
 };
 
 typedef struct WorldObject WorldObject;
@@ -41,12 +40,12 @@ typedef struct WorldObjectPos WorldObjectPos;
 struct World
 {
     // world configs
-    int gen_proc_rabbits;
-    int gen_proc_foxes;
-    int gen_food_foxes;
-    int n_gen;
-    int n_rows;
-    int n_cols;
+    int32 gen_proc_rabbits;
+    int32 gen_proc_foxes;
+    int32 gen_food_foxes;
+    int32 n_gen;
+    int32 n_rows;
+    int32 n_cols;
 
     // grid ptr, size n_rows * n_cols
     WorldObjectPos* grid;
@@ -76,7 +75,7 @@ inline World* World_New(int gen_proc_rabbits, int gen_proc_foxes, int gen_food_f
     size_t world_size = sizeof(World) +     // World size
         grid_size;                          // World.grid size
 
-    char* m = malloc(world_size);
+    char* m = (char*)malloc(world_size);
     World* world = (World*)m;
     world->gen_proc_rabbits = gen_proc_rabbits;
     world->gen_proc_foxes = gen_proc_foxes;
@@ -220,7 +219,7 @@ inline void World_PrettyPrint(World const* world)
     }
 
     // print trailing '====='
-    for (int i = 0; i < world->n_cols + 2; ++i)
+    for (int32 i = 0; i < world->n_cols + 2; ++i)
         printf("-");
 
     printf("\n");
