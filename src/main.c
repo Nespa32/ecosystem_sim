@@ -27,8 +27,8 @@ int choose_move(World const* world, int gen, WorldObject const* obj,
             continue;
 
         int idx = World_CoordsToIdx(world, coord_x, coord_y);
-        WorldObject const* local_obj = World_GetObject(world, idx);
-        if (local_obj->type == target_type)
+        WorldObjectPos const* local_obj = World_GetObject(world, idx);
+        if (local_obj->first.type == target_type)
             viable_mask |= 1 << i;
     }
 
@@ -127,7 +127,8 @@ int main(int argc, char** argv)
         World_PrettyPrint(world);
     }
 
-    memcpy(world->next_grid, world->grid, world->grid_size);
+    for (int i = 0; i < world->n_rows * world->n_cols; ++i)
+        world->grid[i].second = world->grid[i].first;
 
     int const n_gen = world->n_gen;
     for (int gen = 0; gen < n_gen; ++gen)
@@ -138,7 +139,8 @@ int main(int argc, char** argv)
             for (int y = 0; y < world->n_rows; ++y)
             {
                 int idx = World_CoordsToIdx(world, x, y);
-                WorldObject* obj = World_GetObject(world, idx);
+                WorldObjectPos* obj_pos = World_GetObject(world, idx);
+                WorldObject* obj = &(obj_pos->first);
                 if (obj->type != OBJECT_TYPE_RABBIT)
                     continue;
 
@@ -155,30 +157,32 @@ int main(int argc, char** argv)
 
                     // move obj to loc_idx
                     // conflict rules say the one with the older procreation age stays
-                    WorldObject* local_object = &world->next_grid[loc_idx];
-                    if (local_object->type == OBJECT_TYPE_RABBIT)
+                    WorldObjectPos* local_obj_pos = World_GetObject(world, loc_idx);
+                    WorldObject* local_obj = &(local_obj_pos->second);
+                    if (local_obj->type == OBJECT_TYPE_RABBIT)
                     {
-                        if (obj->gen_proc > local_object->gen_proc)
-                            (*local_object) = (*obj);
+                        if (obj->gen_proc > local_obj->gen_proc)
+                            (*local_obj) = (*obj);
                     }
                     else
-                        (*local_object) = (*obj);
+                        (*local_obj) = (*obj);
 
                     // procreation, leave rabbit in place
                     if (can_proc)
-                        world->next_grid[idx] = (*obj);
+                        obj_pos->second = (*obj);
                     else
-                        world->next_grid[idx].type = OBJECT_TYPE_NONE;
+                        obj_pos->second.type = OBJECT_TYPE_NONE;
 
                     continue;
                 }
 
                 // failed to move, stay in same place
-                world->next_grid[idx] = (*obj);
+                obj_pos->second = (*obj);
             }
         }
 
-        memcpy(world->grid, world->next_grid, world->grid_size);
+        for (int i = 0; i < world->n_rows * world->n_cols; ++i)
+            world->grid[i].first = world->grid[i].second;
 
         // process foxes
         for (int x = 0; x < world->n_rows; ++x)
@@ -186,7 +190,8 @@ int main(int argc, char** argv)
             for (int y = 0; y < world->n_cols; ++y)
             {
                 int idx = World_CoordsToIdx(world, x, y);
-                WorldObject* obj = World_GetObject(world, idx);
+                WorldObjectPos* obj_pos = World_GetObject(world, idx);
+                WorldObject* obj = &(obj_pos->first);
                 if (obj->type != OBJECT_TYPE_FOX)
                     continue;
 
@@ -204,14 +209,15 @@ int main(int argc, char** argv)
                     // found a rabbit, eat it up
                     obj->last_ate = 0;
                     // move fox to rabbit location
-                    WorldObject* local_object = &world->next_grid[rabbit_loc_idx];
-                    (*local_object) = (*obj);
+                    WorldObjectPos* local_obj_pos = World_GetObject(world, rabbit_loc_idx);
+                    WorldObject* local_obj = &(local_obj_pos->second);
+                    (*local_obj) = (*obj);
 
                     // // procreation, leave fox in place
                     if (can_proc)
-                        world->next_grid[idx] = (*local_object);
+                        obj_pos->second = (*local_obj);
                     else
-                        world->next_grid[idx].type = OBJECT_TYPE_NONE;
+                        obj_pos->second.type = OBJECT_TYPE_NONE;
 
                     continue; // that's all folks
                 }
@@ -219,7 +225,7 @@ int main(int argc, char** argv)
                 // no rabbit found, die if too much time passed since last gen
                 if (++obj->last_ate >= world->gen_food_foxes)
                 {
-                    world->next_grid[idx].type = OBJECT_TYPE_NONE; // death
+                    obj_pos->second.type = OBJECT_TYPE_NONE; // death
                     continue;
                 }
 
@@ -231,40 +237,42 @@ int main(int argc, char** argv)
                         obj->gen_proc = 0;
 
                     // move fox to location
-                    WorldObject* local_object = &world->next_grid[loc_idx];
+                    WorldObjectPos* local_obj_pos = World_GetObject(world, loc_idx);
+                    WorldObject* local_obj = &(local_obj_pos->second);
 
                     // overriding another fox, keep the one with older procreation age
                     // or if gen_proc is equal, the least hungry one
-                    if (local_object->type == OBJECT_TYPE_FOX)
+                    if (local_obj->type == OBJECT_TYPE_FOX)
                     {
-                        if (obj->gen_proc > local_object->gen_proc)
-                            (*local_object) = (*obj);
-                        else if (obj->gen_proc == local_object->gen_proc &&
-                            obj->last_ate < local_object->last_ate)
-                            (*local_object) = (*obj);
+                        if (obj->gen_proc > local_obj->gen_proc)
+                            (*local_obj) = (*obj);
+                        else if (obj->gen_proc == local_obj->gen_proc &&
+                            obj->last_ate < local_obj->last_ate)
+                            (*local_obj) = (*obj);
                     }
                     else
-                        (*local_object) = (*obj);
+                        (*local_obj) = (*obj);
 
                     // procreation, leave fox in place
                     // it doesn't inherit father's last_ate
                     if (can_proc)
                     {
-                        world->next_grid[idx] = (*obj);
-                        world->next_grid[idx].last_ate = 0;
+                        obj_pos->second = (*obj);
+                        obj_pos->second.last_ate = 0;
                     }
                     else
-                        world->next_grid[idx].type = OBJECT_TYPE_NONE;
+                        obj_pos->second.type = OBJECT_TYPE_NONE;
 
                     continue;
                 }
 
                 // failed to move, stay in same place
-                world->next_grid[idx] = (*obj);
+                obj_pos->second = (*obj);
             }
         }
 
-        memcpy(world->grid, world->next_grid, world->grid_size);
+        for (int i = 0; i < world->n_rows * world->n_cols; ++i)
+            world->grid[i].first = world->grid[i].second;
 
         --world->n_gen;
 
@@ -369,7 +377,8 @@ World* read_world_from_file(const char* file_str)
         }
 
         int idx = World_CoordsToIdx(world, x, y);
-        World_SetObjectType(world, idx, obj_type);
+        WorldObjectPos* obj = World_GetObject(world, idx);
+        obj->first.type = obj_type;
     }
 
     fclose(file);

@@ -27,6 +27,16 @@ struct WorldObject
 
 typedef struct WorldObject WorldObject;
 
+struct WorldObjectPos
+{
+    // the actual object
+    WorldObject first;
+    // helper used to compute next grid/object state
+    WorldObject second;
+};
+
+typedef struct WorldObjectPos WorldObjectPos;
+
 struct World
 {
     // world configs
@@ -39,9 +49,7 @@ struct World
 
     size_t grid_size;
     // grid ptr, size n_rows * n_cols
-    WorldObject* grid;
-    // helper used to compute next grid, also size n_rows * n_cols
-    WorldObject* next_grid;
+    WorldObjectPos* grid;
 };
 
 typedef struct World World;
@@ -50,10 +58,7 @@ World* World_New(int gen_proc_rabbits, int gen_proc_foxes, int gen_food_foxes,
     int n_gen, int n_rows, int n_cols);
 void World_Delete(World* world);
 int World_CoordsToIdx(World const* world, int x, int y);
-void World_SetObjectType(World* world, int idx, ObjectType obj_type);
-void World_SetObject(World* world, int idx, WorldObject* obj);
-WorldObject* World_GetObject(World const* world, int idx);
-ObjectType World_GetObjectType(World const* world, int idx);
+WorldObjectPos* World_GetObject(World const* world, int idx);
 void World_Print(World const* world);
 void World_PrettyPrint(World const* world);
 int World_Compare(World const* left, World const* right);
@@ -61,12 +66,11 @@ int World_Compare(World const* left, World const* right);
 inline World* World_New(int gen_proc_rabbits, int gen_proc_foxes, int gen_food_foxes,
     int n_gen, int n_rows, int n_cols)
 {
-    size_t grid_size = n_rows * n_cols * sizeof(WorldObject);
+    size_t grid_size = n_rows * n_cols * sizeof(WorldObject) * 2;
     // do a single malloc
     // this only works because WorldObject elements are 1-byte aligned
     size_t world_size = sizeof(World) +     // World size
-        grid_size +                         // World.grid size
-        grid_size;                          // World.next_grid size
+        grid_size;                          // World.grid size
 
     char* m = malloc(world_size);
     World* world = (World*)m;
@@ -77,11 +81,9 @@ inline World* World_New(int gen_proc_rabbits, int gen_proc_foxes, int gen_food_f
     world->n_rows = n_rows;
     world->n_cols = n_cols;
     world->grid_size = grid_size;
-    world->grid = (WorldObject*)(m + sizeof(World));
-    world->next_grid = (WorldObject*)(m + sizeof(World) + grid_size);
+    world->grid = (WorldObjectPos*)(m + sizeof(World));
 
     memset(world->grid, 0x0, world->grid_size);
-    memset(world->next_grid, 0x0, world->grid_size);
     return world;
 }
 
@@ -96,27 +98,9 @@ inline int World_CoordsToIdx(World const* world, int x, int y)
     return x * world->n_rows + y;
 }
 
-inline void World_SetObjectType(World* world, int idx, ObjectType obj_type)
-{
-    WorldObject* obj = World_GetObject(world, idx);
-    obj->type = obj_type;
-}
-
-inline void World_SetObject(World* world, int idx, WorldObject* obj)
-{
-    WorldObject* local_obj = World_GetObject(world, idx);
-    (*local_obj) = (*obj);
-}
-
-inline WorldObject* World_GetObject(World const* world, int idx)
+inline WorldObjectPos* World_GetObject(World const* world, int idx)
 {
     return &world->grid[idx];
-}
-
-inline ObjectType World_GetObjectType(World const* world, int idx)
-{
-    WorldObject* obj = World_GetObject(world, idx);
-    return obj->type;
 }
 
 inline void World_Print(World const* world)
@@ -127,7 +111,8 @@ inline void World_Print(World const* world)
         for (int y = 0; y < world->n_cols; ++y)
         {
             int idx = World_CoordsToIdx(world, x, y);
-            if (World_GetObjectType(world, idx) != OBJECT_TYPE_NONE)
+            WorldObjectPos* obj = World_GetObject(world, idx);
+            if (obj->first.type != OBJECT_TYPE_NONE)
                 ++n_objs;
         }
     }
@@ -142,7 +127,8 @@ inline void World_Print(World const* world)
         for (int y = 0; y < world->n_cols; ++y)
         {
             int idx = World_CoordsToIdx(world, x, y);
-            ObjectType obj_type = World_GetObjectType(world, idx);
+            WorldObjectPos* obj = World_GetObject(world, idx);
+            ObjectType obj_type = obj->first.type;
             if (obj_type == OBJECT_TYPE_NONE)
                 continue;
 
@@ -172,7 +158,8 @@ inline void World_PrettyPrint(World const* world)
         for (int y = 0; y < world->n_cols; ++y)
         {
             int idx = World_CoordsToIdx(world, x, y);
-            ObjectType obj_type = World_GetObjectType(world, idx);
+            WorldObjectPos* obj = World_GetObject(world, idx);
+            ObjectType obj_type = obj->first.type;
 
             switch (obj_type)
             {
@@ -223,9 +210,9 @@ inline int World_Compare(World const* left, World const* right)
         for (int y = 0; y < left->n_cols; ++y)
         {
             int idx = World_CoordsToIdx(left, x, y);
-            WorldObject const* left_obj = World_GetObject(left, idx);
-            WorldObject const* right_obj = World_GetObject(right, idx);
-            if (left_obj->type != right_obj->type)
+            WorldObjectPos const* left_obj = World_GetObject(left, idx);
+            WorldObjectPos const* right_obj = World_GetObject(right, idx);
+            if (left_obj->first.type != right_obj->first.type)
                 return 1;
         }
     }
