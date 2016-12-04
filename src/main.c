@@ -8,57 +8,99 @@
 
 void print_usage();
 World* read_world_from_file(const char* file_str);
+WorldObjectPos* choose_move_rabbit(World const* world, uint32 gen,
+    WorldObject const* obj, int x, int y);
+WorldObjectPos* choose_move_fox(World const* world, uint32 gen,
+    WorldObject const* obj, int x, int y);
 
-WorldObjectPos* choose_move(World const* world, uint32 gen, WorldObject const* obj,
-    int x, int y, ObjectType target_type)
+// used for choose_move_*
+static int const directions[4][2] = {
+    // north      east      south      west
+    { -1, 0 }, { 0, 1 }, { 1, 0 }, { 0, -1 }
+};
+
+// from viable_mask and path_choice we can use a lookup table
+//  to determine which path to go, instead of iteratively figuring it out
+static int const choose_move_lookup[16][4] = {
+
+    {  9,  9,  9,  9 }, // 0
+    {  0,  9,  9,  9 }, // 1
+    {  1,  9,  9,  9 }, // 2
+    {  0,  1,  9,  9 }, // 3
+    {  2,  9,  9,  9 }, // 4
+    {  0,  2,  9,  9 }, // 5
+    {  1,  2,  9,  9 }, // 6
+    {  0,  1,  2,  9 }, // 7
+    {  3,  9,  9,  9 }, // 8
+    {  0,  3,  9,  9 }, // 9
+    {  1,  3,  9,  9 }, // 10
+    {  0,  1,  3,  9 }, // 11
+    {  2,  3,  9,  9 }, // 12
+    {  0,  2,  3,  9 }, // 13
+    {  1,  2,  3,  9 }, // 14
+    {  0,  1,  2,  3 }, // 15
+};
+
+WorldObjectPos* choose_move_rabbit(World const* world, uint32 gen,
+    WorldObject const* obj, int x, int y)
 {
-    static int const directions[4][2] = {
-        // north      east      south      west
-        { -1, 0 }, { 0, 1 }, { 1, 0 }, { 0, -1 }
-    };
-
-    int viable_mask = 0;
-    for (int i = 0; i < 4; ++i)
+    uint32 viable_mask = 0;
+    for (uint32 i = 0; i < 4; ++i)
     {
         int const coord_x = x + directions[i][0];
         int const coord_y = y + directions[i][1];
         int idx = World_CoordsToIdx(world, coord_x, coord_y);
         WorldObjectPos const* local_obj = World_GetObject(world, idx);
-        if (local_obj->first.type == target_type)
+        if (local_obj->first.type == OBJECT_TYPE_NONE)
             viable_mask |= 1 << i;
     }
 
     if (!viable_mask)
         return nullptr;
 
-    int const p = __builtin_popcount(viable_mask);
-    int path_choice = (gen + x + y) % p;
-
-    // from viable_mask and path_choice we can use a lookup table
-    //  to determine which path to go, instead of iteratively figuring it out
-    static int const lookuptable[16][4] = {
-
-        {  9,  9,  9,  9 }, // 0
-        {  0,  9,  9,  9 }, // 1
-        {  1,  9,  9,  9 }, // 2
-        {  0,  1,  9,  9 }, // 3
-        {  2,  9,  9,  9 }, // 4
-        {  0,  2,  9,  9 }, // 5
-        {  1,  2,  9,  9 }, // 6
-        {  0,  1,  2,  9 }, // 7
-        {  3,  9,  9,  9 }, // 8
-        {  0,  3,  9,  9 }, // 9
-        {  1,  3,  9,  9 }, // 10
-        {  0,  1,  3,  9 }, // 11
-        {  2,  3,  9,  9 }, // 12
-        {  0,  2,  3,  9 }, // 13
-        {  1,  2,  3,  9 }, // 14
-        {  0,  1,  2,  3 }, // 15
-    };
-
-    int i = lookuptable[viable_mask][path_choice];
+    uint32 const p = __builtin_popcount(viable_mask);
+    int const path_choice = (gen + x + y) % p;
+    int i = choose_move_lookup[viable_mask][path_choice];
     int idx = World_CoordsToIdx(world, x + directions[i][0], y + directions[i][1]);
     return World_GetObject(world, idx);
+}
+
+WorldObjectPos* choose_move_fox(World const* world, uint32 gen,
+    WorldObject const* obj, int x, int y)
+{
+    uint32 rabbit_mask = 0;
+    uint32 empty_mask = 0;
+    for (uint32 i = 0; i < 4; ++i)
+    {
+        int const coord_x = x + directions[i][0];
+        int const coord_y = y + directions[i][1];
+        int idx = World_CoordsToIdx(world, coord_x, coord_y);
+        WorldObjectPos const* local_obj = World_GetObject(world, idx);
+        if (local_obj->first.type == OBJECT_TYPE_RABBIT)
+            rabbit_mask |= 1 << i;
+        else if (local_obj->first.type == OBJECT_TYPE_NONE)
+            empty_mask |= 1 << i;
+    }
+
+    // don't 'optimize', branches are executed in parallel this way
+    if (rabbit_mask)
+    {
+        uint32 const p = __builtin_popcount(rabbit_mask);
+        int const path_choice = (gen + x + y) % p;
+        int i = choose_move_lookup[rabbit_mask][path_choice];
+        int idx = World_CoordsToIdx(world, x + directions[i][0], y + directions[i][1]);
+        return World_GetObject(world, idx);
+    }
+    else if (empty_mask)
+    {
+        uint32 const p = __builtin_popcount(empty_mask);
+        int const path_choice = (gen + x + y) % p;
+        int i = choose_move_lookup[empty_mask][path_choice];
+        int idx = World_CoordsToIdx(world, x + directions[i][0], y + directions[i][1]);
+        return World_GetObject(world, idx);
+    }
+
+    return nullptr;
 }
 
 void print_usage()
@@ -140,7 +182,8 @@ int main(int argc, char** argv)
 
                 ++obj->gen_proc;
 
-                WorldObjectPos* local_obj_pos = choose_move(world, gen, obj, x, y, OBJECT_TYPE_NONE);
+                WorldObjectPos* local_obj_pos = choose_move_rabbit(world, gen,
+                    obj, x, y);
                 if (local_obj_pos)
                 {
                     int const can_proc = obj->gen_proc > world->gen_proc_rabbits;
@@ -188,56 +231,38 @@ int main(int argc, char** argv)
                     continue;
 
                 ++obj->gen_proc;
-                int const can_proc = obj->gen_proc > world->gen_proc_foxes;
+                ++obj->last_ate;
 
-                // search for a rabbit
-                WorldObjectPos* local_obj_pos = choose_move(world, gen, obj, x, y, OBJECT_TYPE_RABBIT);
+                // search for a rabbit or empty place
+                WorldObjectPos* local_obj_pos = choose_move_fox(world, gen,
+                    obj, x, y);
                 if (local_obj_pos)
                 {
+                    int const can_proc = obj->gen_proc > world->gen_proc_foxes;
                     // reset proc age since we were able to move
                     if (can_proc)
                         obj->gen_proc = 0;
 
-                    // found a rabbit, eat it up
-                    obj->last_ate = 0;
-                    // move fox to rabbit location
-                    WorldObject* local_obj = &(local_obj_pos->second);
-                    (*local_obj) = (*obj);
-
-                    // // procreation, leave fox in place
-                    if (can_proc)
-                        obj_pos->second = (*local_obj);
-                    else
-                        obj_pos->second.type = OBJECT_TYPE_NONE;
-
-                    continue; // that's all folks
-                }
-
-                // no rabbit found, die if too much time passed since last gen
-                if (++obj->last_ate >= world->gen_food_foxes)
-                {
-                    obj_pos->second.type = OBJECT_TYPE_NONE; // death
-                    continue;
-                }
-
-                local_obj_pos = choose_move(world, gen, obj, x, y, OBJECT_TYPE_NONE);
-                if (local_obj_pos)
-                {
-                    // reset proc age since we were able to move
-                    if (can_proc)
-                        obj->gen_proc = 0;
+                    int is_target_rabbit = local_obj_pos->first.type == OBJECT_TYPE_RABBIT;
+                    if (is_target_rabbit)
+                        obj->last_ate = 0;
+                    // no rabbit found, die if too much time passed since last gen
+                    else if (obj->last_ate >= world->gen_food_foxes)
+                    {
+                        obj_pos->second.type = OBJECT_TYPE_NONE; // death
+                        continue;
+                    }
 
                     // move fox to location
                     WorldObject* local_obj = &(local_obj_pos->second);
-
                     // overriding another fox, keep the one with older procreation age
                     // or if gen_proc is equal, the least hungry one
-                    if (local_obj->type == OBJECT_TYPE_FOX)
+                    if (!is_target_rabbit && local_obj->type == OBJECT_TYPE_FOX)
                     {
-                        if (obj->gen_proc > local_obj->gen_proc)
-                            (*local_obj) = (*obj);
-                        else if (obj->gen_proc == local_obj->gen_proc &&
+                        if (obj->gen_proc == local_obj->gen_proc &&
                             obj->last_ate < local_obj->last_ate)
+                            (*local_obj) = (*obj);
+                        else if (obj->gen_proc > local_obj->gen_proc)
                             (*local_obj) = (*obj);
                     }
                     else
@@ -253,6 +278,13 @@ int main(int argc, char** argv)
                     else
                         obj_pos->second.type = OBJECT_TYPE_NONE;
 
+                    continue; // that's all folks
+                }
+
+                // no rabbit found, die if too much time passed since last gen
+                if (obj->last_ate >= world->gen_food_foxes)
+                {
+                    obj_pos->second.type = OBJECT_TYPE_NONE; // death
                     continue;
                 }
 
