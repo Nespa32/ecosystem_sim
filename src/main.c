@@ -41,7 +41,7 @@ static int const choose_move_lookup[16][4] = {
     {  0,  1,  2,  3 }, // 15
 };
 
-WorldObjectPos* choose_move_rabbit(World const* world, uint32 gen,
+inline WorldObjectPos* choose_move_rabbit(World const* world, uint32 gen,
     WorldObject const* obj, int x, int y)
 {
     uint32 viable_mask = 0;
@@ -58,14 +58,14 @@ WorldObjectPos* choose_move_rabbit(World const* world, uint32 gen,
     if (!viable_mask)
         return nullptr;
 
-    uint32 const p = __builtin_popcount(viable_mask);
+    uint64 const p = __builtin_popcount(viable_mask);
     int const path_choice = (gen + x + y) % p;
     int i = choose_move_lookup[viable_mask][path_choice];
     int idx = World_CoordsToIdx(world, x + directions[i][0], y + directions[i][1]);
     return World_GetObject(world, idx);
 }
 
-WorldObjectPos* choose_move_fox(World const* world, uint32 gen,
+inline WorldObjectPos* choose_move_fox(World const* world, uint32 gen,
     WorldObject const* obj, int x, int y)
 {
     uint32 rabbit_mask = 0;
@@ -85,7 +85,7 @@ WorldObjectPos* choose_move_fox(World const* world, uint32 gen,
     // don't 'optimize', branches are executed in parallel this way
     if (rabbit_mask)
     {
-        uint32 const p = __builtin_popcount(rabbit_mask);
+        uint64 const p = __builtin_popcount(rabbit_mask);
         int const path_choice = (gen + x + y) % p;
         int i = choose_move_lookup[rabbit_mask][path_choice];
         int idx = World_CoordsToIdx(world, x + directions[i][0], y + directions[i][1]);
@@ -93,7 +93,7 @@ WorldObjectPos* choose_move_fox(World const* world, uint32 gen,
     }
     else if (empty_mask)
     {
-        uint32 const p = __builtin_popcount(empty_mask);
+        uint64 const p = __builtin_popcount(empty_mask);
         int const path_choice = (gen + x + y) % p;
         int i = choose_move_lookup[empty_mask][path_choice];
         int idx = World_CoordsToIdx(world, x + directions[i][0], y + directions[i][1]);
